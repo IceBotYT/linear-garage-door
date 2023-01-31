@@ -1,17 +1,24 @@
 site_name: Linear Garage Door
 repo_url: https://github.com/IceBotYT/linear-garage-door
+repo_name: IceBotYT/linear-garage-door
 
 theme:
   name: material
+  features:
+    - navigation.tracking
   palette:
     - scheme: default
       toggle:
         icon: material/toggle-switch-off-outline
         name: Switch to dark mode
+      primary: light blue
+      accent: indigo
     - scheme: slate
       toggle:
         icon: material/toggle-switch
         name: Switch to light mode
+      primary: light blue
+      accent: indigo
 
 nav:
   - Introduction: 'index.md'
@@ -21,6 +28,9 @@ nav:
 markdown_extensions:
   - pymdownx.snippets:
       check_paths: true
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
 
 plugins:
   - search:
@@ -28,9 +38,10 @@ plugins:
       default_handler: python
       handlers:
         python:
-          rendering:
-            show_signature_annotations: true
-            show_source: true
+          paths: [src]
+          options:
+            show_source: false
             show_submodules: true
-      watch:
-        - src/linear_garage_door
+
+watch:
+  - src/linear_garage_door

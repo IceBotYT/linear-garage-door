@@ -37,7 +37,7 @@ repos:
         types: [python]
       - id: mypy
         name: mypy
-        entry: poetry run mypy .
+        entry: poetry run mypy --strict src/linear_garage_door
         require_serial: true
         language: system
         types: [python]

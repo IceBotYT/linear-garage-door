@@ -77,3 +77,7 @@ venv.bak/
 
 # IDEs
 .idea/
+
+# Local testing
+src/test.ipynb
+src/test.py
