@@ -220,11 +220,11 @@ class Linear:
         if ws_monitor.websocket is None or ws_monitor.websocket.closed:
             if client_session is None:
                 await ws_monitor.new_connection(
-                    aiohttp.ClientSession(), self._message_callback, True
+                    aiohttp.ClientSession(), self._message_callback, True, False
                 )
             else:
                 await ws_monitor.new_connection(
-                    client_session, self._message_callback, True
+                    client_session, self._message_callback, True, True
                 )
         if ws_monitor.monitor is None or ws_monitor.monitor.done():
             await ws_monitor.start_monitor()

@@ -46,6 +46,7 @@ class WebSocketMonitor:
         session: ClientSession,
         callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
         start_monitor: bool = False,
+        custom_session: bool = False,
     ) -> None:
         await cancel_task(self._receiver_task)
         self._disconnect = False
@@ -53,6 +54,7 @@ class WebSocketMonitor:
         self._receiver_task = asyncio.ensure_future(self._receiver())
         self._callback = callback
         self._session = session
+        self._custom_session = custom_session
         if start_monitor:
             await self.start_monitor()
 
@@ -93,5 +95,6 @@ class WebSocketMonitor:
         self._disconnect = True
         if self._ws:
             await self._ws.close()
-            await self._session.close()
+            if not self._custom_session:
+                await self._session.close()
         await cancel_task(self._monitor_task, self._receiver_task)
