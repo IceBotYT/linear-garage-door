@@ -167,6 +167,7 @@ class Linear:
         email: str,
         password: str,
         device_id: str | None = None,
+        client_session: aiohttp.ClientSession | None = None,
     ) -> dict[str, Any] | None:
         """Logs in to a Linear account.
 
@@ -217,9 +218,14 @@ class Linear:
 
         ws_monitor = WebSocketMonitor()
         if ws_monitor.websocket is None or ws_monitor.websocket.closed:
-            await ws_monitor.new_connection(
-                aiohttp.ClientSession(), self._message_callback, True
-            )
+            if client_session is None:
+                await ws_monitor.new_connection(
+                    aiohttp.ClientSession(), self._message_callback, True
+                )
+            else:
+                await ws_monitor.new_connection(
+                    client_session, self._message_callback, True
+                )
         if ws_monitor.monitor is None or ws_monitor.monitor.done():
             await ws_monitor.start_monitor()
         ws = ws_monitor.websocket
