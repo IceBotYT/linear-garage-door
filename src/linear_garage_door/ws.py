@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 from random import uniform
 from typing import Any, Awaitable, Callable

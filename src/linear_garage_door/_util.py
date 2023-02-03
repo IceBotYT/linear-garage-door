@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any
 
 from .const import TYPE_TO_PROTOCOL, MessageTypes
