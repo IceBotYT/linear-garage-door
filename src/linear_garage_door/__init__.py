@@ -15,6 +15,7 @@ from .errors import (
     InvalidDeviceIDError,
     InvalidLoginError,
     NotOpenError,
+    ResponseError,
     UnexpectedError,
 )
 from .ws import WebSocketMonitor
@@ -67,6 +68,7 @@ class Linear:
     _user_email: str
     _internal_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None
     _monitor: WebSocketMonitor
+    _keepalive_task: asyncio.Task[None]
 
     def __init__(
         self: Linear,
@@ -122,7 +124,12 @@ class Linear:
 
         self._internal_callback = _got_resp
 
-        return await future
+        try:
+            result = await asyncio.wait_for(future, timeout=10.0)
+        except asyncio.TimeoutError as e:
+            raise e
+
+        return result
 
     async def _await_for_msg_type(self: Linear, msg_type: str) -> dict[str, Any]:
         future: asyncio.Future[dict[str, Any]] = asyncio.Future()
@@ -134,7 +141,12 @@ class Linear:
 
         self._internal_callback = _got_resp
 
-        return await future
+        try:
+            result = await asyncio.wait_for(future, timeout=10.0)
+        except asyncio.TimeoutError as e:
+            raise e
+
+        return result
 
     async def _await_for_dev_state_report(self: Linear) -> dict[str, Any]:
         future: asyncio.Future[dict[str, Any]] = asyncio.Future()
@@ -149,7 +161,12 @@ class Linear:
 
         self._internal_callback = _got_resp
 
-        return await future
+        try:
+            result = await asyncio.wait_for(future, timeout=10.0)
+        except asyncio.TimeoutError as e:
+            raise e
+
+        return result
 
     async def _message_callback(self: Linear, data: dict[str, Any]) -> None:
         if self._internal_callback:
@@ -161,6 +178,28 @@ class Linear:
     def _check_if_open(self: Linear) -> None:
         if not self.open:
             raise NotOpenError("The WebSocket has not been opened. Call login() first.")
+
+    async def _keepalive(self: Linear) -> None:
+        while True:
+            if not self.open:
+                return
+
+            request = create_request(
+                MessageTypes.KEEPALIVE,
+                {
+                    "MessageID": self._get_message_id(),
+                    "SendingUserID": self._user_id,
+                    "Targets": "B/*",
+                    "SendingDeviceID": self._device_id,
+                },
+            )
+            await self._ws.send_str(request)
+            try:
+                await self._await_for_msg_type(MessageTypes.KEEPALIVE.value)
+            except asyncio.TimeoutError as e:
+                raise ResponseError from e
+
+            await asyncio.sleep(540)
 
     async def login(
         self: Linear,
@@ -229,6 +268,9 @@ class Linear:
         if ws_monitor.monitor is None or ws_monitor.monitor.done():
             await ws_monitor.start_monitor()
         ws = ws_monitor.websocket
+
+        # Start keepalive task
+        self._keepalive_task = asyncio.create_task(self._keepalive())
 
         if ws is None:
             raise UnexpectedError("ws is None when it should be.")
@@ -530,4 +572,5 @@ class Linear:
 
     async def close(self: Linear) -> None:
         """Close the WebSocket."""
+        self._keepalive_task.cancel()
         await self._monitor.close()

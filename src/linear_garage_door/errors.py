@@ -12,3 +12,7 @@ class NotOpenError(Exception):
 
 class UnexpectedError(Exception):
     """This error should never be raised."""
+
+
+class ResponseError(Exception):
+    """General response error."""
