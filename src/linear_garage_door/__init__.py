@@ -11,13 +11,7 @@ import aiohttp
 
 from ._util import create_request
 from .const import MessageTypes
-from .errors import (
-    InvalidDeviceIDError,
-    InvalidLoginError,
-    NotOpenError,
-    ResponseError,
-    UnexpectedError,
-)
+from .errors import InvalidDeviceIDError, InvalidLoginError, NotOpenError, ResponseError
 from .ws import WebSocketMonitor
 
 
@@ -109,7 +103,7 @@ class Linear:
                 valid = False
 
             if not valid:
-                raise InvalidDeviceIDError("device_id must be a UUID.")
+                raise InvalidDeviceIDError()
             else:
                 device_id = device_id.upper()
 
@@ -126,8 +120,8 @@ class Linear:
 
         try:
             result = await asyncio.wait_for(future, timeout=10.0)
-        except asyncio.TimeoutError as e:
-            raise e
+        except asyncio.TimeoutError:
+            raise
 
         return result
 
@@ -143,8 +137,8 @@ class Linear:
 
         try:
             result = await asyncio.wait_for(future, timeout=10.0)
-        except asyncio.TimeoutError as e:
-            raise e
+        except asyncio.TimeoutError:
+            raise
 
         return result
 
@@ -163,8 +157,8 @@ class Linear:
 
         try:
             result = await asyncio.wait_for(future, timeout=10.0)
-        except asyncio.TimeoutError as e:
-            raise e
+        except asyncio.TimeoutError:
+            raise
 
         return result
 
@@ -177,7 +171,7 @@ class Linear:
 
     def _check_if_open(self: Linear) -> None:
         if not self.open:
-            raise NotOpenError("The WebSocket has not been opened. Call login() first.")
+            raise NotOpenError()
 
     async def _keepalive(self: Linear) -> None:
         while True:
@@ -272,8 +266,7 @@ class Linear:
         # Start keepalive task
         self._keepalive_task = asyncio.create_task(self._keepalive())
 
-        if ws is None:
-            raise UnexpectedError("ws is None when it should be.")
+        assert ws is not None
 
         self._monitor = ws_monitor
         self._ws = ws
@@ -287,11 +280,9 @@ class Linear:
             and response["Headers"]["UserID"] == ""
         ):
             if response["Headers"]["Reason"] == "InvalidLogin":
-                raise InvalidLoginError(
-                    "Login provided is invalid, please check the email and password"
-                )
+                raise InvalidLoginError()
 
-            raise InvalidLoginError("Login error: ", response["Headers"]["Reason"])
+            raise InvalidLoginError(response["Headers"]["Reason"])
 
         self._user_id = response["Headers"]["UserID"]
         self._user_email = response["Headers"]["UserEmail"]
