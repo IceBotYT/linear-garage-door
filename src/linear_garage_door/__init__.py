@@ -125,7 +125,9 @@ class Linear:
 
         return result
 
-    async def _await_for_msg_type(self: Linear, msg_type: str) -> dict[str, Any]:
+    async def _await_for_msg_type(
+        self: Linear, msg_type: str, timeout: float = 10.0
+    ) -> dict[str, Any]:
         future: asyncio.Future[dict[str, Any]] = asyncio.Future()
 
         async def _got_resp(data: dict[str, Any]) -> None:
@@ -136,19 +138,22 @@ class Linear:
         self._internal_callback = _got_resp
 
         try:
-            result = await asyncio.wait_for(future, timeout=10.0)
+            result = await asyncio.wait_for(future, timeout=timeout)
         except asyncio.TimeoutError:
             raise
 
         return result
 
-    async def _await_for_dev_state_report(self: Linear) -> dict[str, Any]:
+    async def _await_for_dev_state_report(
+        self: Linear, device_id: str
+    ) -> dict[str, Any]:
         future: asyncio.Future[dict[str, Any]] = asyncio.Future()
 
         async def _got_resp(response: dict[str, Any]) -> None:
             if (
                 response["Type"] == MessageTypes.DEVICE_STATE.value
                 and response["Headers"]["Type"] == "Report"
+                and response["Headers"]["SendingDeviceID"] == "H/" + device_id
             ):
                 future.set_result(response)
                 self._internal_callback = None
@@ -533,6 +538,11 @@ class Linear:
 
         await self._ws.send_str(hello_request)
 
+        try:
+            await self._await_for_msg_type(MessageTypes.WELCOME.value, timeout=2.0)
+        except asyncio.TimeoutError:
+            pass
+
         state_request = create_request(
             MessageTypes.REQUEST_DEVICE_STATE,
             {
@@ -545,7 +555,7 @@ class Linear:
 
         await self._ws.send_str(state_request)
 
-        response = await self._await_for_dev_state_report()
+        response = await self._await_for_dev_state_report(device_id)
 
         subdev_props: dict[str, dict[str, str]] = {}
 
