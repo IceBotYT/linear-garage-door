@@ -118,10 +118,7 @@ class Linear:
 
         self._internal_callback = _got_resp
 
-        try:
-            result = await asyncio.wait_for(future, timeout=10.0)
-        except asyncio.TimeoutError:
-            raise
+        result = await asyncio.wait_for(future, timeout=10.0)
 
         return result
 
@@ -137,10 +134,7 @@ class Linear:
 
         self._internal_callback = _got_resp
 
-        try:
-            result = await asyncio.wait_for(future, timeout=timeout)
-        except asyncio.TimeoutError:
-            raise
+        result = await asyncio.wait_for(future, timeout=timeout)
 
         return result
 
@@ -160,10 +154,7 @@ class Linear:
 
         self._internal_callback = _got_resp
 
-        try:
-            result = await asyncio.wait_for(future, timeout=10.0)
-        except asyncio.TimeoutError:
-            raise
+        result = await asyncio.wait_for(future, timeout=10.0)
 
         return result
 
