@@ -267,23 +267,25 @@ class Linear:
         self._monitor = ws_monitor
         self._ws = ws
 
+        response = asyncio.create_task(self._await_for_any_msg())
+
         await ws.send_str(request)
 
-        response = await self._await_for_any_msg()
+        response_data = await response
 
         if (
-            response["Type"] == MessageTypes.GOODBYE.value
-            and response["Headers"]["UserID"] == ""
+            response_data["Type"] == MessageTypes.GOODBYE.value
+            and response_data["Headers"]["UserID"] == ""
         ):
-            if response["Headers"]["Reason"] == "InvalidLogin":
+            if response_data["Headers"]["Reason"] == "InvalidLogin":
                 raise InvalidLoginError()
 
-            raise InvalidLoginError(response["Headers"]["Reason"])
+            raise InvalidLoginError(response_data["Headers"]["Reason"])
 
-        self._user_id = response["Headers"]["UserID"]
-        self._user_email = response["Headers"]["UserEmail"]
+        self._user_id = response_data["Headers"]["UserID"]
+        self._user_email = response_data["Headers"]["UserEmail"]
 
-        return response
+        return response_data
 
     async def get_sites(self: Linear) -> list[dict[str, str]]:
         """Get sites available under this account.
@@ -321,14 +323,17 @@ class Linear:
             },
         )
 
+        response = asyncio.create_task(
+            self._await_for_msg_type(MessageTypes.SITE_LIST.value)
+        )
         await self._ws.send_str(request)
-        response = await self._await_for_msg_type(MessageTypes.SITE_LIST.value)
+        response_data = await response
 
         sites = []
 
-        for key in response["Headers"].keys():
+        for key in response_data["Headers"].keys():
             if key.startswith("Site-"):
-                site = response["Headers"][key].split(",")
+                site = response_data["Headers"][key].split(",")
                 sites.append({"id": site[0], "name": site[1]})
 
         return sites
@@ -377,14 +382,17 @@ class Linear:
             },
         )
 
+        response = asyncio.create_task(
+            self._await_for_msg_type(MessageTypes.SITE_CONFIG.value)
+        )
         await self._ws.send_str(request)
-        response = await self._await_for_msg_type(MessageTypes.SITE_CONFIG.value)
+        response_data = await response
 
         devices = []
 
-        for key in response["Headers"].keys():
+        for key in response_data["Headers"].keys():
             if key.startswith("HDev-"):
-                device = response["Headers"][key].split(",")
+                device = response_data["Headers"][key].split(",")
                 devices.append(
                     {
                         "id": device[0],
@@ -527,10 +535,14 @@ class Linear:
             },
         )
 
+        awaiting_welcome = asyncio.create_task(
+            self._await_for_msg_type(MessageTypes.WELCOME.value, timeout=2.0)
+        )
+
         await self._ws.send_str(hello_request)
 
         try:
-            await self._await_for_msg_type(MessageTypes.WELCOME.value, timeout=2.0)
+            await awaiting_welcome
         except asyncio.TimeoutError:
             pass
 
@@ -544,18 +556,20 @@ class Linear:
             },
         )
 
+        response = asyncio.create_task(self._await_for_dev_state_report(device_id))
+
         await self._ws.send_str(state_request)
 
-        response = await self._await_for_dev_state_report(device_id)
+        response_data = await response
 
         subdev_props: dict[str, dict[str, str]] = {}
 
-        for key in response["Headers"].keys():
+        for key in response_data["Headers"].keys():
             if key.startswith("SubDev-"):
                 subdev_name = key.split("SubDev-")[1]
                 subdev_props[subdev_name] = {}
 
-                subdev = response["Headers"][key].split(",")
+                subdev = response_data["Headers"][key].split(",")
 
                 for prop in subdev:
                     subdev_props[subdev_name][prop.split(":")[0]] = prop.split(":")[1]
