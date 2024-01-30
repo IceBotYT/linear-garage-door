@@ -5,6 +5,7 @@ from random import uniform
 from typing import Any, Awaitable, Callable
 
 from aiohttp import ClientSession, ClientWebSocketResponse, WSMsgType
+from tenacity import retry, stop_after_attempt, wait_fixed
 
 from ._util import parse_response
 from .const import SERVICE_URL
@@ -43,6 +44,7 @@ class WebSocketMonitor:
     def monitor(self) -> asyncio.Task[Any] | None:
         return self._monitor_task
 
+    @retry(stop=stop_after_attempt(5), wait=wait_fixed(3))
     async def new_connection(
         self,
         session: ClientSession,

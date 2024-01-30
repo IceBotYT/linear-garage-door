@@ -33,6 +33,7 @@ packages = [
 python = ">=3.8, <4.0"
 dnspython = "^2.3.0"
 aiohttp = "^3.8.1"
+tenacity = "^8.2.3"
 
 [tool.poetry.dev-dependencies]
 autoflake = "*"
