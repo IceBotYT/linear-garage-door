@@ -20,7 +20,3 @@ class NotOpenError(Exception):
 
     def __init__(self) -> None:
         super().__init__("The WebSocket has not been opened. Call login() first.")
-
-
-class ResponseError(Exception):
-    """General response error."""

@@ -8,11 +8,12 @@ import uuid
 from typing import Any, Awaitable, Callable
 
 import aiohttp
+import async_timeout
+from tenacity import retry, stop_after_attempt, wait_fixed
 
-from ._util import create_request
-from .const import MessageTypes
-from .errors import InvalidDeviceIDError, InvalidLoginError, NotOpenError, ResponseError
-from .ws import WebSocketMonitor
+from ._util import create_request, parse_response
+from .const import SERVICE_URL, MessageTypes
+from .errors import InvalidDeviceIDError, InvalidLoginError, NotOpenError
 
 
 class Linear:
@@ -61,7 +62,6 @@ class Linear:
     _user_id: str
     _user_email: str
     _internal_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None
-    _monitor: WebSocketMonitor
     _keepalive_task: asyncio.Task[None]
 
     def __init__(
@@ -109,55 +109,6 @@ class Linear:
 
         return device_id
 
-    async def _await_for_any_msg(self: Linear) -> dict[str, Any]:
-        future: asyncio.Future[dict[str, Any]] = asyncio.Future()
-
-        async def _got_resp(data: dict[str, Any]) -> None:
-            future.set_result(data)
-            self._internal_callback = None
-
-        self._internal_callback = _got_resp
-
-        result = await asyncio.wait_for(future, timeout=10.0)
-
-        return result
-
-    async def _await_for_msg_type(
-        self: Linear, msg_type: str, timeout: float = 10.0
-    ) -> dict[str, Any]:
-        future: asyncio.Future[dict[str, Any]] = asyncio.Future()
-
-        async def _got_resp(data: dict[str, Any]) -> None:
-            if data["Type"] == msg_type:
-                future.set_result(data)
-                self._internal_callback = None
-
-        self._internal_callback = _got_resp
-
-        result = await asyncio.wait_for(future, timeout=timeout)
-
-        return result
-
-    async def _await_for_dev_state_report(
-        self: Linear, device_id: str
-    ) -> dict[str, Any]:
-        future: asyncio.Future[dict[str, Any]] = asyncio.Future()
-
-        async def _got_resp(response: dict[str, Any]) -> None:
-            if (
-                response["Type"] == MessageTypes.DEVICE_STATE.value
-                and response["Headers"]["Type"] == "Report"
-                and response["Headers"]["SendingDeviceID"] == "H/" + device_id
-            ):
-                future.set_result(response)
-                self._internal_callback = None
-
-        self._internal_callback = _got_resp
-
-        result = await asyncio.wait_for(future, timeout=10.0)
-
-        return result
-
     async def _message_callback(self: Linear, data: dict[str, Any]) -> None:
         if self._internal_callback:
             # Override user-provided callback
@@ -184,13 +135,10 @@ class Linear:
                 },
             )
             await self._ws.send_str(request)
-            try:
-                await self._await_for_msg_type(MessageTypes.KEEPALIVE.value)
-            except asyncio.TimeoutError as e:
-                raise ResponseError from e
 
             await asyncio.sleep(540)
 
+    @retry(reraise=True, stop=stop_after_attempt(5), wait=wait_fixed(3))
     async def login(
         self: Linear,
         email: str,
@@ -245,33 +193,18 @@ class Linear:
             },
         )
 
-        ws_monitor = WebSocketMonitor()
-        if ws_monitor.websocket is None or ws_monitor.websocket.closed:
-            if client_session is None:
-                await ws_monitor.new_connection(
-                    aiohttp.ClientSession(), self._message_callback, True, False
-                )
-            else:
-                await ws_monitor.new_connection(
-                    client_session, self._message_callback, True, True
-                )
-        if ws_monitor.monitor is None or ws_monitor.monitor.done():
-            await ws_monitor.start_monitor()
-        ws = ws_monitor.websocket
-
-        # Start keepalive task
-        self._keepalive_task = asyncio.create_task(self._keepalive())
+        ws = await (
+            aiohttp.ClientSession() if client_session is None else client_session
+        ).ws_connect(SERVICE_URL, ssl=False)
 
         assert ws is not None
 
-        self._monitor = ws_monitor
         self._ws = ws
 
-        response = asyncio.create_task(self._await_for_any_msg())
-
         await ws.send_str(request)
-
-        response_data = await response
+        response_data = parse_response(
+            await asyncio.wait_for(ws.receive_str(), timeout=5.0)
+        )
 
         if (
             response_data["Type"] == MessageTypes.GOODBYE.value
@@ -285,8 +218,12 @@ class Linear:
         self._user_id = response_data["Headers"]["UserID"]
         self._user_email = response_data["Headers"]["UserEmail"]
 
+        # Start keepalive task
+        self._keepalive_task = asyncio.create_task(self._keepalive())
+
         return response_data
 
+    @retry(reraise=True, stop=stop_after_attempt(5), wait=wait_fixed(3))
     async def get_sites(self: Linear) -> list[dict[str, str]]:
         """Get sites available under this account.
 
@@ -322,12 +259,13 @@ class Linear:
                 "SendingDeviceID": self._device_id,
             },
         )
-
-        response = asyncio.create_task(
-            self._await_for_msg_type(MessageTypes.SITE_LIST.value)
-        )
         await self._ws.send_str(request)
-        response_data = await response
+
+        async with async_timeout.timeout(5):
+            async for msg in self._ws:
+                response_data = parse_response(msg.data)
+                if response_data["Type"] == MessageTypes.SITE_LIST.value:
+                    break
 
         sites = []
 
@@ -338,6 +276,7 @@ class Linear:
 
         return sites
 
+    @retry(reraise=True, stop=stop_after_attempt(5), wait=wait_fixed(3))
     async def get_devices(self: Linear, site: str) -> list[dict[str, list[str] | str]]:
         """Get devices available under a specific site.
 
@@ -382,11 +321,11 @@ class Linear:
             },
         )
 
-        response = asyncio.create_task(
-            self._await_for_msg_type(MessageTypes.SITE_CONFIG.value)
-        )
         await self._ws.send_str(request)
-        response_data = await response
+        async for msg in self._ws:
+            response_data = parse_response(msg.data)
+            if response_data["Type"] == MessageTypes.SITE_CONFIG.value:
+                break
 
         devices = []
 
@@ -403,6 +342,7 @@ class Linear:
 
         return devices
 
+    @retry(reraise=True, stop=stop_after_attempt(5), wait=wait_fixed(3))
     async def operate_device(
         self: Linear, device_id: str, subdevice: str, subdevice_state: str
     ) -> None:
@@ -467,11 +407,15 @@ class Linear:
         )
 
         await self._ws.send_str(op_request)
-
-        await self._await_for_msg_type(MessageTypes.DEVICE_STATE.value)
+        async with async_timeout.timeout(5):
+            async for msg in self._ws:
+                response_data = parse_response(msg.data)
+                if response_data["Type"] == MessageTypes.DEVICE_STATE.value:
+                    break
 
         return
 
+    @retry(reraise=True, stop=stop_after_attempt(5), wait=wait_fixed(3))
     async def get_device_state(
         self: Linear, device_id: str
     ) -> dict[str, dict[str, str]]:
@@ -535,16 +479,7 @@ class Linear:
             },
         )
 
-        awaiting_welcome = asyncio.create_task(
-            self._await_for_msg_type(MessageTypes.WELCOME.value, timeout=2.0)
-        )
-
         await self._ws.send_str(hello_request)
-
-        try:
-            await awaiting_welcome
-        except asyncio.TimeoutError:
-            pass
 
         state_request = create_request(
             MessageTypes.REQUEST_DEVICE_STATE,
@@ -556,11 +491,12 @@ class Linear:
             },
         )
 
-        response = asyncio.create_task(self._await_for_dev_state_report(device_id))
-
         await self._ws.send_str(state_request)
-
-        response_data = await response
+        async with async_timeout.timeout(5):
+            async for msg in self._ws:
+                response_data = parse_response(msg.data)
+                if response_data["Type"] == MessageTypes.DEVICE_STATE.value:
+                    break
 
         subdev_props: dict[str, dict[str, str]] = {}
 
@@ -578,5 +514,6 @@ class Linear:
 
     async def close(self: Linear) -> None:
         """Close the WebSocket."""
-        self._keepalive_task.cancel()
-        await self._monitor.close()
+        if hasattr(self, "_keepalive_task") and not self._keepalive_task.done():
+            self._keepalive_task.cancel()
+        await self._ws.close()
