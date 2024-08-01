@@ -1,3 +1,6 @@
+> [!CAUTION]
+> This library is now deprecated in favor of the new API, found [here](https://github.com/IceBotYT/nice-go)
+
 # Linear Garage Door
 
 [![PyPI](https://img.shields.io/pypi/v/linear-garage-door?style=flat-square)](https://pypi.python.org/pypi/linear-garage-door/)
